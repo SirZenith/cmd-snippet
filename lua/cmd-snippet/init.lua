@@ -51,6 +51,14 @@ end
 
 -- ----------------------------------------------------------------------------
 
+---@param cmd string
+---@param err string
+---@return SnippetNode
+local function make_error_snippet(cmd, err)
+    vim.notify(err, vim.log.levels.WARN)
+    return luasnip.snippet_node(nil, { luasnip.text_node(M.cmd_head_char .. cmd) })
+end
+
 local function command_snip_func(_, snip)
     local cmd = snip.captures[1] ---@type string
     local segments = vim.split(cmd, "%s+")
@@ -73,26 +81,39 @@ local function command_snip_func(_, snip)
         end
     end
 
-    local nodes
     if not target then
-        vim.notify("no matching command", vim.log.levels.WARN)
-    elseif target.args and target:get_required_arg_cnt() > 0 and #args == 0 then
+        return make_error_snippet(cmd, "no matching command")
+    end
+
+    local err, nodes
+    if target.args
+        and target:get_required_arg_cnt() > 0
+        and #args == 0
+    then
         nodes = target:gen_signature_snip()
         table.insert(nodes, 1, luasnip.text_node(M.cmd_head_char .. cmd .. " "))
     else
-        local err = target:check_args(args)
-        if err then
-            vim.notify(err, vim.log.levels.WARN)
-        else
-            nodes = target:make_snippet(args)
+        err = target:check_args(args)
+        if not err then
+            err, nodes = target:make_snippet(args)
         end
     end
 
-    local ok, result = false, nil
-    if nodes then
-        ok, result = pcall(luasnip.snippet_node, nil, nodes)
+    if err or not nodes then
+        return make_error_snippet(cmd, err or "failed to convert snippet content to node list")
     end
-    return ok and result or luasnip.snippet_node(nil, { luasnip.text_node(M.cmd_head_char .. cmd) })
+
+    local ok, result = xpcall(function()
+        return luasnip.snippet_node(nil, nodes)
+    end, function(make_err)
+        err = debug.traceback(make_err) or make_err
+    end)
+
+    if not ok then
+        return make_error_snippet(cmd, err or "failed to generate snippet node with node list")
+    end
+
+    return result
 end
 
 function M.setup()

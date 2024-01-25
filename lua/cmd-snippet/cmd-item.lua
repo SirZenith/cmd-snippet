@@ -52,9 +52,11 @@ end
 -- ----------------------------------------------------------------------------
 
 ---@param body string
+---@return string? err
+---@return SnippetNode[]
 function CmdItem.parse_string(body)
     if body == "" then
-        error("empty body")
+        return "empty body", {}
     end
 
     local opts = {}
@@ -77,11 +79,11 @@ function CmdItem.parse_string(body)
         var_functions = opts.variables,
     })
 
-    return nodes
+    return nil, nodes
 end
 
 ---@param tbl SnippetNodeInfoTable
----@param index_set table<number, boolean>
+---@param index_set table<number, true>
 ---@return SnippetNode[]
 function CmdItem.parse_line_element_table(tbl, index_set)
     local nodes = {}
@@ -90,7 +92,6 @@ function CmdItem.parse_line_element_table(tbl, index_set)
         local element = tbl[i]
         if type(element) == "string" then
             table.insert(nodes, luasnip.text_node(element))
-
         elseif type(element) == "number" then
             local new_node
             if not index_set[element] then
@@ -101,10 +102,8 @@ function CmdItem.parse_line_element_table(tbl, index_set)
 
             table.insert(nodes, new_node)
             index_set[element] = true
-
         elseif type(element) == "table" then
             table.insert(nodes, element)
-
         end
     end
 
@@ -112,19 +111,20 @@ function CmdItem.parse_line_element_table(tbl, index_set)
 end
 
 ---@param tbl (string | SnippetNodeInfoTable)[]
+---@return string? err
+---@return SnippetNode[]
 function CmdItem.parse_table(tbl)
     local nodes = {}
     local index_set = {}
+    local err
 
     local len = #tbl
     for i = 1, len do
         local line = tbl[i]
         if type(line) == "string" then
             table.insert(nodes, luasnip.text_node(line))
-
         elseif type(line) == "table" then
             vim.list_extend(nodes, CmdItem.parse_line_element_table(line, index_set))
-
         end
 
         if i < len then
@@ -132,7 +132,32 @@ function CmdItem.parse_table(tbl)
         end
     end
 
-    return nodes
+    err = err or CmdItem.check_index_continuity(index_set)
+
+    return err, nodes
+end
+
+---@param index_set table<number, true>
+---@return string? err
+function CmdItem.check_index_continuity(index_set)
+    local index_cnt = 0
+    for _ in pairs(index_set) do
+        index_cnt = index_cnt + 1
+    end
+
+    local err_index
+    for i = 1, index_cnt do
+        if not index_set[i] then
+            err_index = i
+            break
+        end
+    end
+
+    if err_index then
+        return "jump index is no continuous at #" .. tostring(err_index)
+    end
+
+    return nil
 end
 
 -- ----------------------------------------------------------------------------
@@ -217,26 +242,25 @@ function CmdItem:gen_signature_snip()
 end
 
 ---@param args string[]
----@return SnippetNode[] | nil
+---@return string? err
+---@return SnippetNode[]?
 function CmdItem:make_snippet(args)
+    local err
+
     local content = self.content
     if type(content) == "function" then
-        local err
         content, err = content(unpack(args))
-        if err then
-            vim.notify(err, vim.log.levels.ERROR)
-        end
     end
 
     local nodes
 
     if type(content) == "string" then
-        nodes = CmdItem.parse_string(content)
+        err, nodes = CmdItem.parse_string(content)
     elseif type(content) == "table" and #content ~= 0 then
-        nodes = CmdItem.parse_table(content)
+        err, nodes = CmdItem.parse_table(content)
     end
 
-    return nodes
+    return err, nodes
 end
 
 return CmdItem
