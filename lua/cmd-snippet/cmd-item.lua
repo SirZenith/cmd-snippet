@@ -3,7 +3,7 @@ local ast_parser = require "luasnip.util.parser.ast_parser"
 local parse = require "luasnip.util.parser.neovim_parser".parse
 local Str = require "luasnip.util.str"
 
----@alias ArgType
+---@alias cmd-snippet.ArgType
 ---| "number"
 ---| "string"
 ---| "boolean"
@@ -13,47 +13,80 @@ local Str = require "luasnip.util.str"
 ---| "thread"
 ---| "userdata"
 
----@class SnippetNode # node for LuaSnip
----@alias SnippetNodeInfoTable (string | number | Node)[]
-
----@class ArgItem
+---@class cmd-snippet.ArgItem
 ---@field [1] string # argument name
----@field type? ArgType
+---@field type? cmd-snippet.ArgType
 ---@field is_varg? boolean
 ---@field is_optional? boolean
 
----@alias SnipParsable string | (string | SnippetNodeInfoTable)[]
+---@class cmd-snippet.SnippetNode # LuaSnip node
 
----@class CmdItem
----@field args? string[] | ArgItem[]
----@field content SnipParsable | fun(...: string): SnipParsable | nil
+---@alias cmd-snippet.SnippetNodeInfoTable (string | number | Node)[]
+
+---@alias cmd-snippet.SnipParsable string | (string | cmd-snippet.SnippetNodeInfoTable)[]
+
+-- ----------------------------------------------------------------------------
+
+-- Check if indexes in given index set distribute continuously start from 1.
+---@param index_set table<number, true>
+---@return string? err
+local function check_index_continuity(index_set)
+    local index_cnt = 0
+    for _ in pairs(index_set) do
+        index_cnt = index_cnt + 1
+    end
+
+    local err_index
+    for i = 1, index_cnt do
+        if not index_set[i] then
+            err_index = i
+            break
+        end
+    end
+
+    if err_index then
+        return "jump index is no continuous at #" .. tostring(err_index)
+    end
+
+    return nil
+end
+
+-- ----------------------------------------------------------------------------
+
+---@class cmd-snippet.CmdItemTable
+---@field args? string[] | cmd-snippet.ArgItem[]
+---@field content cmd-snippet.SnipParsable | fun(...: string): cmd-snippet.SnipParsable | nil
+
+---@class cmd-snippet.CmdItem : cmd-snippet.CmdItemTable
 local CmdItem = {}
 CmdItem.__index = CmdItem
 
----@param obj table
+-- Check given value is an instance of CmdItem or not.
+---@param obj any
 ---@return boolean
 function CmdItem:is_instance(obj)
     return getmetatable(obj) == self
 end
 
----@param opt table<string, any>
----@return CmdItem
+---@param opt cmd-snippet.CmdItemTable
+---@return cmd-snippet.CmdItem
 function CmdItem:new(opt)
     local obj = {}
     for k, v in pairs(opt) do
         obj[k] = v
     end
 
-    setmetatable(obj, CmdItem)
+    setmetatable(obj, self)
 
     return obj
 end
 
 -- ----------------------------------------------------------------------------
 
+-- Generate snippet node with plain text content.
 ---@param body string
 ---@return string? err
----@return SnippetNode[]
+---@return cmd-snippet.SnippetNode[]
 function CmdItem.parse_string(body)
     if body == "" then
         return "empty body", {}
@@ -82,9 +115,10 @@ function CmdItem.parse_string(body)
     return nil, nodes
 end
 
----@param tbl SnippetNodeInfoTable
+-- Parsing a single line of content table.
+---@param tbl cmd-snippet.SnippetNodeInfoTable
 ---@param index_set table<number, true>
----@return SnippetNode[]
+---@return cmd-snippet.SnippetNode[]
 function CmdItem.parse_line_element_table(tbl, index_set)
     local nodes = {}
 
@@ -110,9 +144,10 @@ function CmdItem.parse_line_element_table(tbl, index_set)
     return nodes
 end
 
----@param tbl (string | SnippetNodeInfoTable)[]
+-- Generate snippet node by parsing content table.
+---@param tbl (string | cmd-snippet.SnippetNodeInfoTable)[]
 ---@return string? err
----@return SnippetNode[]
+---@return cmd-snippet.SnippetNode[]
 function CmdItem.parse_table(tbl)
     local nodes = {}
     local index_set = {}
@@ -132,38 +167,16 @@ function CmdItem.parse_table(tbl)
         end
     end
 
-    err = err or CmdItem.check_index_continuity(index_set)
+    err = err or check_index_continuity(index_set)
 
     return err, nodes
 end
 
----@param index_set table<number, true>
----@return string? err
-function CmdItem.check_index_continuity(index_set)
-    local index_cnt = 0
-    for _ in pairs(index_set) do
-        index_cnt = index_cnt + 1
-    end
-
-    local err_index
-    for i = 1, index_cnt do
-        if not index_set[i] then
-            err_index = i
-            break
-        end
-    end
-
-    if err_index then
-        return "jump index is no continuous at #" .. tostring(err_index)
-    end
-
-    return nil
-end
-
 -- ----------------------------------------------------------------------------
 
+-- Check if given argument list is valid for current command
 ---@param args string[]
----@return string | nil err
+---@return string? err
 function CmdItem:check_args(args)
     if not self.args then return nil end
 
@@ -190,6 +203,7 @@ function CmdItem:check_args(args)
     return nil
 end
 
+-- Get number of required arguments in current command.
 ---@return number
 function CmdItem:get_required_arg_cnt()
     local cnt = 0
@@ -204,6 +218,7 @@ function CmdItem:get_required_arg_cnt()
     return cnt
 end
 
+-- Get a list of all argument's name in current command.
 ---@return string[]
 function CmdItem:get_arg_names()
     local names = {}
@@ -220,7 +235,9 @@ function CmdItem:get_arg_names()
     return names
 end
 
----@return SnippetNode[]
+-- Generate a place holder snippet by putting argument's name at each argument
+-- position.
+---@return cmd-snippet.SnippetNode[]
 function CmdItem:gen_signature_snip()
     local nodes = {}
     for i, item in ipairs(self.args) do
@@ -241,9 +258,10 @@ function CmdItem:gen_signature_snip()
     return nodes
 end
 
+-- Generate snippet node defined in current command with given arguments.
 ---@param args string[]
 ---@return string? err
----@return SnippetNode[]?
+---@return cmd-snippet.SnippetNode[]?
 function CmdItem:make_snippet(args)
     local err
 
