@@ -42,7 +42,7 @@ end
 local function gen_cmd_matching(item, seg)
     local result = {}
     for k in pairs(item) do
-        if k:starts_with(seg) then
+        if k:sub(1, #seg) == seg then
             table.insert(result, {
                 label = k,
                 kind = vim.lsp.protocol.CompletionItemKind.Method,
