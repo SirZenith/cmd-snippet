@@ -7,11 +7,6 @@ local Str = require "luasnip.util.str"
 ---| "number"
 ---| "string"
 ---| "boolean"
----| "nil"
----| "table"
----| "function"
----| "thread"
----| "userdata"
 
 ---@class cmd-snippet.ArgItem
 ---@field [1] string # argument name
@@ -54,7 +49,7 @@ end
 -- ----------------------------------------------------------------------------
 
 ---@class cmd-snippet.CmdItemTable
----@field args? string[] | cmd-snippet.ArgItem[]
+---@field args? (string| cmd-snippet.ArgItem)[]
 ---@field content cmd-snippet.SnipParsable | fun(...: string): cmd-snippet.SnipParsable | nil
 
 ---@class cmd-snippet.CmdItem : cmd-snippet.CmdItemTable
@@ -174,6 +169,19 @@ end
 
 -- ----------------------------------------------------------------------------
 
+---@param value string
+---@param target_type cmd-snippet.ArgType
+---@return boolean
+local function arg_type_check(value, target_type)
+    if target_type == "number" then
+        return tonumber(value) and true or false
+    elseif target_type == "boolean" then
+        local str = value:lower()
+        return str == "true" or str == "false"
+    end
+    return true
+end
+
 -- Check if given argument list is valid for current command
 ---@param args string[]
 ---@return string? err
@@ -189,14 +197,15 @@ function CmdItem:check_args(args)
 
     for i, item in ipairs(self.args) do
         local arg = args[i]
-        if not arg and not item.is_optional then
+
+        if type(item) == "string" then
+            -- pass
+        elseif not arg and not item.is_optional then
             return ("argument is missing at %d: %q"):format(
                 i, tostring(item[1])
             )
-        elseif item.type and type(arg) ~= item.type then
-            return ("type mismatch at #%d: expected %q got %q"):format(
-                i, item.type, type(arg)
-            )
+        elseif not arg_type_check(arg, item.type or "string") then
+            return ("type mismatch at #%d: expected %q"):format(i, item.type)
         end
     end
 
@@ -218,6 +227,16 @@ function CmdItem:get_required_arg_cnt()
     return cnt
 end
 
+---@param index integer
+---@param item string | cmd-snippet.ArgItem
+local function get_arg_item_name(index, item)
+    local name = item
+    if type(item) == "table" then
+        name = item[1] or ("arg" .. tostring(index))
+    end
+    return name
+end
+
 -- Get a list of all argument's name in current command.
 ---@return string[]
 function CmdItem:get_arg_names()
@@ -225,10 +244,7 @@ function CmdItem:get_arg_names()
     if not self.args then return names end
 
     for i, item in ipairs(self.args) do
-        local name = item
-        if type(item) == "table" then
-            name = item[1] or ("arg" .. tostring(i))
-        end
+        local name = get_arg_item_name(i, item)
         table.insert(names, name)
     end
 
@@ -245,14 +261,7 @@ function CmdItem:gen_signature_snip()
             table.insert(nodes, luasnip.text_node(" "))
         end
 
-        local item_t = type(item)
-        local arg_name = "arg" .. tostring(i)
-        if item_t == "string" then
-            arg_name = item
-        elseif item_t == "table" then
-            arg_name = item_t[1] or arg_name
-        end
-
+        local arg_name = get_arg_item_name(i, item)
         table.insert(nodes, luasnip.insert_node(i, arg_name))
     end
     return nodes
