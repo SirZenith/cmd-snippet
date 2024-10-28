@@ -202,7 +202,7 @@ function CmdItem:check_args(args)
             -- string args are required by default
             if not arg then
                 return ("argument is missing at %d: %q"):format(
-                    i, tostring(item[1])
+                    i, tostring(item)
                 )
             end
         elseif not arg and not item.is_optional then
