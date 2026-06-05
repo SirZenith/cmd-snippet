@@ -50,7 +50,7 @@ end
 
 ---@class cmd-snippet.CmdItemTable
 ---@field args? (string| cmd-snippet.ArgItem)[]
----@field content cmd-snippet.SnipParsable | fun(...: string): cmd-snippet.SnipParsable | nil
+---@field content cmd-snippet.SnipParsable | fun(...: string): cmd-snippet.SnipParsable?, string?
 
 ---@class cmd-snippet.CmdItem : cmd-snippet.CmdItemTable
 local CmdItem = {}
